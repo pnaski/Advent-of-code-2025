@@ -1,20 +1,20 @@
 use std::fs;
 
 fn part_1(contents: &String) -> u64 {
-    let ret = 0;
+    let mut ret = 0;
 
     ret
 }
 
 fn part_2(contents: &String) -> u64 {
-    let ret = 0;
+    let mut ret = 0;
 
     ret
 }
 
 fn main() {
-    let filepath = "day_7/input/input.txt";
-    let filepath = "day_7/input/test_input.txt";
+    let filepath = "day_X/input/input.txt";
+    let filepath = "day_X/input/test_input.txt";
 
     let contents = fs::read_to_string(filepath).expect("Something went wrong");
     let out_1 = part_1(&contents);
