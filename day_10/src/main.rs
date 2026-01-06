@@ -72,77 +72,80 @@ fn dec_joltage(button: u32, joltages: &Vec<i32>) -> Vec<i32> {
     ret
 }
 
-// fn solve_machine(machine: &Machine) -> Option<(u32, u32)> {
-    
-// }
-
-fn solve(machines: &Vec<Machine>, check_joltage: bool) ->u32{
-    let mut ret = 0;
-    for machine in machines {
-        // println!("{:?}", machine);
-        let candidates = grab_initial_candidates(machine.target, &machine.buttons);
-        let mut depth: u32 = 0;
-        let buttons_count = machine.buttons.len();
-        let mut visited_states: VecDeque<(u32, u32, Vec<i32>)> = VecDeque::new(); //(lights, visited_indexes)
-        let mut skip_machine = false;
-        for i in candidates {
-            // println!("Candidate {i} {:0width$b}", machine.buttons[i], width=machine.width);
-            if (machine.target ^ machine.buttons[i]) == 0 {
-                ret += 1;
-                skip_machine = true;
-                break;
-            }
-            visited_states.push_back((
-                machine.target ^ machine.buttons[i],
-                1,
-                dec_joltage(machine.buttons[i], &machine.joltages),
-            ));
+fn solve_machine(
+    target: u32,
+    buttons: &Vec<u32>,
+    want_all: bool,
+    width: usize
+) -> Option<(u32, Vec<u32>)> {
+    let candidates = grab_initial_candidates(target, &buttons);
+    let mut depth: u32 = 0;
+    let buttons_count = buttons.len();
+    let mut visited_states: VecDeque<(u32, u32)> = VecDeque::new(); //(lights, visited_indexes)
+    let mut valid_buttons = Vec::new();
+    let mut skip_machine = false;
+    for i in candidates {
+        // println!("Candidate {i} {:0width$b}", buttons[i], width=width);
+        if (target ^ buttons[i]) == 0 {
+            depth = 1;
+            skip_machine = true;
+            valid_buttons.push(1 << i);
+            break;
         }
-        if skip_machine && !check_joltage {
-            continue;
-        }
-        let mut completed = false;
-        let mut deepest = 0;
-        while !visited_states.is_empty() && !completed {
-            let mut pushed_back = false;
-            let state = visited_states.pop_front().unwrap();
-            if state.1 > deepest {
-                deepest = state.1;
-                println!("{deepest}");
-            }
-            // println!("State: {:0l_width$b} {:0width$b}", state.0, state.1, l_width=machine.width, width = buttons_count);
-            for i in 0..buttons_count {
-                let new_light = state.0 ^ machine.buttons[i];
-                let new_visited = state.1 + 1;
-                // println!("  Visited: {:0l_width$b} {:0l_width$b} {:0width$b}", new_light, machine.buttons[i], new_visited,  l_width=machine.width, width=buttons_count);
-
-                if new_light == 0 {
-                    completed = true;
-                    depth = new_visited;
-                    break;
-                    // println!("      COMPLETED: {:0width$b}", new_visited, width=machine.width);
-                }
-
-                if (state.0 & machine.buttons[i]) == 0 {
-                    continue;
-                }
-
-                visited_states.push_back((
-                    new_light,
-                    new_visited,
-                    dec_joltage(machine.buttons[i], &state.2),
-                ));
-            }
-        }
-        println!("DEPTH: {depth}");
-        ret += depth;
+        visited_states.push_back((target ^ buttons[i], 1 << i));
     }
-    ret
+    if skip_machine && !want_all {
+        return Some((1, valid_buttons));
+    }
+    let mut completed = false;
+    while !visited_states.is_empty() && !completed {
+        let state = visited_states.pop_front().unwrap();
+
+        for i in 0..buttons_count {
+            let new_light = state.0 ^ buttons[i];
+            let new_visited = state.1 | (1 << i);
+
+            if new_light == 0 {
+                completed = true;
+                depth = new_visited.count_ones();
+                if !valid_buttons.contains(&new_visited) {
+                    valid_buttons.push(new_visited);
+                }
+                if !want_all {
+                    break;
+                }
+                if depth < (width as u32) {
+                    completed = false;
+                }
+                continue;
+            }
+
+            if (state.0 & buttons[i]) == 0 {
+                continue;
+            }
+
+            if (state.1 & (1 << i)) == 1 {
+                continue;
+            }
+
+            visited_states.push_back((new_light, new_visited));
+        }
+    }
+    match valid_buttons.len() {
+        0 => None,
+        _ => Some((depth, valid_buttons)),
+    }
 }
 
 fn part_1(contents: &String) -> u32 {
     let machines = parse_input(contents);
-    return solve(&machines, false);
+    let mut ret = 0;
+    for machine in machines {
+        // println!("{:?}", machine);
+        let (depth, _) = solve_machine(machine.target, &machine.buttons, false, 0).unwrap();
+        ret += depth;
+    }
+    ret
 }
 
 fn best_fit_joltage(joltages: &Vec<i32>, buttons: &Vec<u32>, joltage_threshold: usize) -> usize {
@@ -178,75 +181,51 @@ fn part_2(contents: &String) -> u32 {
     let mut ret = 0;
 
     for machine in machines {
-        println!("{:?}", machine);
-        let candidates = grab_initial_candidates(machine.target, &machine.buttons);
-        let mut depth: u32 = 0;
-        let buttons_count = machine.buttons.len();
-        let mut visited_states: VecDeque<(u32, Vec<i32>)> = VecDeque::new(); //(lights, visited_indexes)
-
-        let mut work_joltages = *machine.joltages;
-        // println!("{:?}", work_joltages);
+        let mut joltages = *machine.joltages;
+        let mut j_target = 0;
+        let mut ret_depth = 0;
+        for (i, joltage) in joltages.iter().enumerate() {
+            if joltage % 2 == 1 {
+                j_target |= 1 << i;
+            }
+        }
         loop {
-            let a = best_fit_joltage(&work_joltages, &machine.buttons, machine.width);
-            // println!("  {a}");
-            if a == usize::MAX {
+            let (depth, valid_solutions) = solve_machine(
+                j_target,
+                &machine.buttons,
+                true,
+                machine.width
+            ).unwrap();
+            println!("{:?}", valid_solutions);
+            for j in 0..machine.buttons.len() {
+                if (valid_solutions[0] & (1 << j)) != 0 {
+                    ret_depth += 1;
+                    for i in 0..machine.width {
+                        if (machine.buttons[j] & (1 << i)) != 0 {
+                            joltages[i] -= 1;
+                        }
+                    }
+                }
+            }
+            println!("{:?}", joltages);
+            if joltages.iter().all(|x| *x == 0) {
+                println!("Completed");
                 break;
             }
-            work_joltages = dec_joltage(machine.buttons[a], &work_joltages);
-            depth += 1;
         }
-        println!("{:?}", work_joltages);
-        // println!("{depth}");
-        // let mut decreased = false;
-        for i in 0..machine.buttons.len() {
-            visited_states.push_back((depth, work_joltages.clone()));
-        }
-
-        let mut completed = false;
-        let mut deepest = 0;
-        while !visited_states.is_empty() && !completed {
-            let state = visited_states.pop_front().unwrap();
-            if state.0 > deepest {
-                deepest = state.0;
-                println!("{deepest} {:?}", state.1);
-            }
-            for i in 0..buttons_count {
-                let mut button_allowed = true;
-                for (j, joltage) in state.1.iter().enumerate() {
-                    if *joltage <= (0 as i32) && (machine.buttons[i] & (1 << j)) != 0 {
-                        button_allowed = false;
-                        break;
-                    }
-                }
-                if button_allowed {
-                    let new_joltage = dec_joltage(machine.buttons[i], &state.1);
-                    let all_zeros = new_joltage.iter().all(|x| *x == 0);
-                    if all_zeros {
-                        completed = true;
-                        depth = state.0 + 1;
-                        break;
-                    }
-                    visited_states.push_back((state.0 + 1, new_joltage));
-                }
-                if completed {
-                    break;
-                }
-            }
-        }
-        println!("DEPTH: {depth}");
-        ret += depth;
+        ret += ret_depth;
     }
     ret
 }
 
 fn main() {
-    let filepath = "day_10/input/test_input.txt";
     let filepath = "day_10/input/input.txt";
+    let filepath = "day_10/input/test_input.txt";
 
     let contents = fs::read_to_string(filepath).expect("Something went wrong");
     let out_1 = part_1(&contents);
+    println!("1 Final out: {out_1}");
     let out_2 = part_2(&contents);
 
-    println!("1 Final out: {out_1}");
     println!("2 Final out: {out_2}");
 }
